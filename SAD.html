@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectral Anomaly Detector (SAD) v9</title>
+    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Tone.js for sound generation --><script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+    <!-- Use a retro-style font --><link href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- Root Variables for Dial & Text --- */
+        :root {
+            --panel-bg: #2b2b2b;
+            --metal-gray: #7a7a7a;
+            --dial-face: #0f1c1f;
+            --glow-color: #00ff6a; /* Retro Green Glow */
+            --text-color: #c9c9c9;
+            --retro-font: 'Chivo Mono', monospace;
+        }
+
+        /* --- Global & Casing Styles --- */
+        body {
+            font-family: var(--retro-font);
+            background-color: #1a1a1a;
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .neon-glow {
+            text-shadow: 0 0 5px #00FFFF, 0 0 10px #00FFFF, 0 0 15px #00FFFF, 0 0 20px #00FFFF;
+        }
+        
+        @keyframes pulse-bg {
+            0%, 100% { background-color: #3b2b24; }
+            50% { background-color: #553e37; }
+        }
+        .detected-bg {
+            animation: pulse-bg 0.5s infinite alternate;
+        }
+        
+        .vintage-tv-casing {
+            background-color: #3b2b24; /* Dark reddish-brown wood base */
+            background-image: 
+                linear-gradient(rgba(0,0,0,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px); 
+            background-size: 2px 2px;
+            border: 10px solid #221c19; 
+            border-radius: 1.5rem; 
+            padding: 20px;
+            box-shadow: 
+                0 25px 50px rgba(0,0,0,0.9), 
+                inset 0 5px 15px rgba(255,255,255,0.05), 
+                inset 0 -5px 10px rgba(0,0,0,0.4); 
+            
+            display: grid;
+            grid-template-areas: 
+                "header"
+                "screen"
+                "controls"
+                "message"
+                "footer"; 
+            grid-template-columns: 1fr; 
+            gap: 1.5rem;
+        }
+
+        .header-area { grid-area: header; }
+        .screen-area { grid-area: screen; } 
+        .controls-area { grid-area: controls; } 
+        .message-area { grid-area: message; }
+        .footer-area { grid-area: footer; }
+
+        /* Screen Styles (CRT) - Mostly Unchanged */
+        .screen-bezel {
+            background-color: #222;
+            border: 8px solid #111;
+            border-radius: 0.75rem;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+            padding: 10px;
+        }
+        .crt-effect {
+            position: relative;
+            overflow: hidden; 
+            border-radius: 0.5rem; 
+            background-color: #050a0a; 
+            border: 2px solid #1a1a1a; 
+            box-shadow: inset 0 0 30px rgba(0, 0, 0, 1), inset 0 0 10px rgba(0, 0, 0, 1);
+        }
+        .crt-effect::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(0, 0, 0, 0.2) 50%, rgba(0, 0, 0, 0.6) 50%),
+                        radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.7) 100%);
+            background-size: 100% 3px, 100% 100%;
+            pointer-events: none; 
+            border-radius: 0.5rem; 
+            transform: perspective(700px) rotateX(1deg) scale(1.04, 1.04); 
+            opacity: 0.9; 
+            z-index: 5; 
+        }
+        #oscilloscope-canvas {
+            filter: blur(0.2px) brightness(1.5) contrast(1.1) drop-shadow(1px 0 0 rgba(255,0,0,0.1)) drop-shadow(-1px 0 0 rgba(0,255,0,0.1));
+            position: relative;
+            z-index: 1;
+        }
+
+        /* --- VINTAGE DIAL STYLING (The 1950s look) --- */
+        .dial-button {
+            cursor: pointer;
+            width: 120px; 
+            height: 120px;
+            margin: 0 auto; 
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            user-select: none;
+            position: relative;
+            transition: all 0.1s ease-out;
+
+            /* Base Metal Bezel */
+            background: linear-gradient(145deg, #a0a0a0, #606060);
+            box-shadow: 
+                0 0 0 5px #444, /* Outer Bevel */
+                inset 0 0 15px rgba(0, 0, 0, 0.8), /* Inner Shadow for Glass effect */
+                -2px -2px 5px rgba(255, 255, 255, 0.2),
+                2px 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .dial-face {
+            width: 85%;
+            height: 85%;
+            border-radius: 50%;
+            background-color: var(--dial-face);
+            color: var(--glow-color);
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 5px;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.9),
+                        0 0 3px var(--glow-color);
+            border: 2px solid var(--metal-gray);
+        }
+
+        .dial-title {
+            font-size: 0.7rem;
+            line-height: 1.1;
+            margin-top: 5px;
+            color: var(--glow-color);
+            text-shadow: 0 0 5px rgba(0, 255, 106, 0.5);
+        }
+        
+        .dial-status {
+            font-size: 0.6rem;
+            color: #ff3333; /* Default OFF color */
+            margin-bottom: 5px;
+            transition: color 0.1s; /* Added transition for smooth color changes */
+        }
+
+        /* Active State */
+        .dial-button:active {
+            box-shadow: 
+                0 0 0 5px #444,
+                inset 0 0 15px rgba(0, 0, 0, 0.8),
+                inset 2px 2px 5px rgba(0, 0, 0, 0.5),
+                inset -2px -2px 5px rgba(255, 255, 255, 0.2);
+            transform: scale(0.98);
+        }
+        
+        .dial-on .dial-status {
+            color: var(--glow-color); 
+            text-shadow: 0 0 5px rgba(0, 255, 106, 0.7);
+        }
+        
+        .dial-on .dial-face {
+             box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.9),
+                        0 0 8px var(--glow-color), 
+                        inset 0 0 20px rgba(0, 255, 106, 0.1);
+        }
+
+        /* Simulated Needle/Indicator */
+        .dial-needle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 30px; 
+            background-color: #ff3333;
+            transform-origin: 1px 0;
+            transition: transform 1s ease-in-out;
+            border-radius: 2px;
+            z-index: 10;
+            box-shadow: 0 0 5px #ff3333;
+            transform: translate(-50%, -100%) rotate(-120deg); 
+        }
+
+        .dial-on .dial-needle {
+            animation: pulse-needle 1.5s infinite alternate;
+        }
+
+        @keyframes pulse-needle {
+            0% { transform: translate(-50%, -100%) rotate(-100deg); }
+            100% { transform: translate(-50%, -100%) rotate(10deg); }
+        }
+
+        .gauge-markings {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            top: 0;
+            left: 0;
+            background: radial-gradient(circle at center, transparent 80%, rgba(255, 255, 255, 0.2) 85%, transparent 90%);
+        }
+
+        /* --- SLIDER/DIAL KNOB STYLES (Unchanged) --- */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 20px; 
+            background: transparent;
+            margin: 0;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 28px;
+            width: 28px;
+            border-radius: 50%;
+            background: #5a5a5a;
+            border: 2px solid #333;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2);
+            margin-top: -14px; 
+            position: relative;
+            z-index: 2;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            background: #444;
+            border-radius: 3px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
+            position: relative;
+            z-index: 1;
+        }
+        .dial-track-background {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            height: 6px;
+            width: 100%;
+            background: #444;
+            border-radius: 3px;
+            transform: translateY(-50%);
+            z-index: 0;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
+        }
+
+        /* Speaker & Button Styles (Unchanged) */
+        .speaker-grille {
+            height: 120px; 
+            margin-top: 0.5rem; 
+            background-color: #2e2420; 
+            background-image: 
+                linear-gradient(to bottom, rgba(0,0,0,0.3) 1px, transparent 1px, transparent 6px);
+            background-size: 100% 7px; 
+            border-radius: 0.5rem;
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.8);
+        }
+        .vintage-button {
+            background-color: #5a5a5a; 
+            border: 2px solid #333;
+            color: #ccc; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2);
+            transition: all 0.1s ease;
+        }
+        .vintage-button:hover { background-color: #6a6a6a; transform: translateY(-1px); }
+        .vintage-button:active { transform: translateY(1px); }
+        
+    </style>
+</head>
+<body class="bg-gray-800 p-4">
+
+    <!-- The entire TV device --><div id="app" class="vintage-tv-casing w-full max-w-4xl transition-all duration-300">
+        
+        <!-- Header (grid-area: header) --><div class="header-area text-center">
+            <h1 class="text-4xl font-extrabold text-white uppercase mb-2 tracking-widest">
+                SPECTRAL ANOMALY DETECTOR
+            </h1>
+            <p class="text-xs text-gray-400 mb-6">
+                Vintage Paranormal Investigation Unit
+            </p>
+        </div>
+
+        <!-- Screen (grid-area: screen) -->
+        <div class="screen-area">
+            <div class="screen-bezel p-2">
+                <div id="detector-display" class="w-full h-48 flex items-center justify-center rounded-lg relative crt-effect">
+                    <canvas id="oscilloscope-canvas" class="w-full h-full"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls & Dials (grid-area: controls) -->
+        <div class="controls-area">
+            <!-- Status message -->
+            <p id="status-message" class="text-center text-cyan-700 font-bold text-lg transition-colors duration-300 mb-6">
+                MONITORING...
+            </p>
+
+            <!-- Inner layout: Dials and Sliders -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 p-2 items-start">
+                
+                <!-- 1. Phantom Grab Sensor Dial -->
+                <div class="text-center">
+                    <div id="phantom-dial" 
+                        class="dial-button" 
+                        onclick="toggleMakeyMakeyMonitoring()">
+                        
+                        <div class="dial-face">
+                            <div class="gauge-markings"></div>
+                            <div class="dial-needle"></div>
+                            <div class="dial-status" id="phantom-status">OFFLINE</div>
+                            <div class="dial-title">Phantom Grab</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. EVP Monitoring Dial -->
+                <div class="text-center">
+                    <div id="evp-dial" 
+                        class="dial-button" 
+                        onclick="toggleEVPMonitoring()">
+
+                        <div class="dial-face">
+                            <div class="gauge-markings"></div>
+                            <div class="dial-needle"></div>
+                            <div class="dial-status" id="evp-status">OFFLINE</div>
+                            <div class="dial-title">EVP Monitor</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Sensitivity Dials (Sliders) -->
+                <div class="md:col-span-2 p-4 bg-gray-700/30 rounded-lg border border-gray-600/50">
+                    <p class="text-sm font-semibold text-gray-300 mb-3 text-center">Sensitivity Dials</p>
+                    <div class="mb-4 relative">
+                        <label for="makey-makey-sensitivity-slider" class="block text-xs font-medium text-gray-400 mb-1">
+                            Grab: <span id="makey-makey-value" class="text-cyan-400 font-bold">50%</span>
+                        </label>
+                        <div class="dial-track-background"></div>
+                        <input type="range" id="makey-makey-sensitivity-slider" min="10" max="100" value="50">
+                    </div>
+                    <div class="relative">
+                        <label for="evp-threshold-slider" class="block text-xs font-medium text-gray-400 mb-1">
+                            EVP: <span id="evp-value" class="text-cyan-400 font-bold">50%</span>
+                        </label>
+                        <div class="dial-track-background"></div>
+                        <input type="range" id="evp-threshold-slider" min="10" max="100" value="50">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Speaker Grille (grid-area: message) --><div class="speaker-grille message-area"></div>
+        
+        <!-- Footer Area: Clear Button & Instructions (grid-area: footer) --><div class="footer-area mt-4 grid grid-cols-2 gap-4">
+            <button id="reset-spikes-btn" class="vintage-button w-full py-2 px-4 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold uppercase tracking-wider text-xs">
+                Clear Anomalies
+            </button>
+            <div class="p-2 bg-gray-700/30 rounded-lg border border-gray-600/50">
+                <p class="text-xs text-gray-400 space-y-1">
+                    **Grab:** Hold **Spacebar** for intensity.
+                    **EVP:** Triggers on loud sounds.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Configuration (Initial States) ---
+        const TRIGGER_KEY = ' ';
+        const DECAY_MS = 1000;
+        const MIN_TRIGGER_INTENSITY = 0.3;
+        const CURSOR_SCROLL_SPEED = 1.0;
+        const CURSOR_WIDTH = 5;
+
+        let currentMaxKeyHoldMs = 1500;
+        let currentSoundThreshold = 50;
+        
+        // --- Canvas Persistence Settings ---
+        const SPIKE_DECAY_RATE = 0.05;      
+        const PERSISTENCE_INTENSITY = 0.15;
+        
+        // --- DOM Elements ---
+        const app = document.getElementById('app');
+        const detectorDisplay = document.getElementById('detector-display');
+        const statusMessage = document.getElementById('status-message');
+        
+        // New Dial Elements
+        const phantomDial = document.getElementById('phantom-dial');
+        const phantomStatus = document.getElementById('phantom-status');
+        const evpDial = document.getElementById('evp-dial');
+        const evpStatus = document.getElementById('evp-status');
+
+        const resetSpikesBtn = document.getElementById('reset-spikes-btn'); 
+
+        // Sensitivity Dials (Sliders)
+        const mmSlider = document.getElementById('makey-makey-sensitivity-slider');
+        const mmValueDisplay = document.getElementById('makey-makey-value');
+        const evpSlider = document.getElementById('evp-threshold-slider');
+        const evpValueDisplay = document.getElementById('evp-value');
+
+
+        // --- State Variables (Internal Logic) ---
+        let isMakeyMakeyActive = false;
+        let isListening = false;
+        let makeyKeyDownTime = 0;
+        
+        // --- Canvas Variables ---
+        const canvas = document.getElementById('oscilloscope-canvas');
+        const ctx = canvas.getContext('2d');
+        let canvasWidth, canvasHeight;
+        
+        let cursorPositionX = 0; 
+        let anomalies = []; 
+
+        // --- Audio API Variables ---
+        let audioContext = null;
+        let analyser = null;
+        let dataArray = null;
+        let mediaStream = null; 
+        
+        // --- Tone.js Sound Setup (Updated for Louder Creepy Organ) ---
+
+        // 1. Effects Chain for a creepy, echoing sound
+        
+        // Volume Booster: Boosts output by +6 dB (4x amplitude)
+        const volumeBooster = new Tone.Volume(6).toDestination();
+
+        // High wet value and long decay for a spacious, church feel
+        // Reverb now connects to the volume booster
+        const reverb = new Tone.Reverb({ decay: 5, preDelay: 0.2, wet: 0.8 }).connect(volumeBooster); 
+        
+        // Slow, wide chorus for a wavering, detuned effect common in old organs
+        // Chorus connects to the reverb
+        const chorus = new Tone.Chorus({ 
+            frequency: 0.5, // Very slow rate
+            depth: 0.8, 
+            delayTime: 2, 
+            type: "sine" 
+        }).connect(reverb);
+        
+        // 2. Organ-like PolySynth
+        const creepyOrgan = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: "triangle" }, // Pipe-like waveform
+            // Slow attack and long release to mimic the sound fading out
+            envelope: { attack: 1.0, decay: 0.5, sustain: 0.6, release: 2.0 }, 
+            detune: -5, // Subtle detuning for extra creepiness/unsettling feel
+        }).connect(chorus);
+
+        function triggerScarySound() {
+            // Low, dissonant chord (C2, C#2, G2) to sound eerie and unsettling
+            const now = Tone.now();
+            creepyOrgan.triggerAttackRelease(["C2", "C#2", "G2"], "2n", now);
+        }
+
+        let detectionTimer = null;
+
+        // --- Sensitivity Calculation Functions (Logic Confirmed) ---
+        
+        /*
+        * Grab Sensitivity: Calculates the time (ms) a key must be held.
+        * Lower percentage (e.g., 10%) = Longer hold time (3000ms) = LESS SENSITIVE
+        * Higher percentage (e.g., 100%) = Shorter hold time (300ms) = MORE SENSITIVE
+        */
+        function calculateMakeyMakeyHoldTime(sliderValue) {
+            const minTime = 300; 
+            const maxTime = 3000; 
+            const timeRange = maxTime - minTime; 
+            const sliderRange = 100 - 10;
+            const normalizedValue = (sliderValue - 10) / sliderRange;
+            // Subtracting the normalized value ensures inverse scaling (low percentage = high time)
+            return maxTime - (normalizedValue * timeRange);
+        }
+
+        /*
+        * EVP Sensitivity: Calculates the amplitude threshold (0-127) for sound detection.
+        * Lower percentage (e.g., 10%) = Higher threshold (70) = LESS SENSITIVE (needs louder sound)
+        * Higher percentage (e.g., 100%) = Lower threshold (20) = MORE SENSITIVE (needs softer sound)
+        */
+        function calculateEVPSoundThreshold(sliderValue) {
+            const minThreshold = 20; 
+            const maxThreshold = 70; 
+            const thresholdRange = maxThreshold - minThreshold; 
+            const sliderRange = 100 - 10; 
+            const normalizedValue = (sliderValue - 10) / sliderRange;
+            // Subtracting the normalized value ensures inverse scaling (low percentage = high threshold)
+            return maxThreshold - (normalizedValue * thresholdRange);
+        }
+        
+        function setupSensitivityDials() {
+            const initialMMValue = parseInt(mmSlider.value);
+            const initialEVPValue = parseInt(evpSlider.value);
+            
+            currentMaxKeyHoldMs = calculateMakeyMakeyHoldTime(initialMMValue);
+            currentSoundThreshold = calculateEVPSoundThreshold(initialEVPValue);
+            
+            mmValueDisplay.textContent = `${initialMMValue}%`;
+            evpValueDisplay.textContent = `${initialEVPValue}%`;
+
+            mmSlider.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                currentMaxKeyHoldMs = calculateMakeyMakeyHoldTime(value);
+                mmValueDisplay.textContent = `${value}%`;
+            });
+            
+            evpSlider.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                currentSoundThreshold = calculateEVPSoundThreshold(value);
+                evpValueDisplay.textContent = `${value}%`;
+            });
+        }
+
+
+        // --- Canvas Drawing Logic ---
+
+        function resizeCanvas() {
+            canvasWidth = canvas.clientWidth;
+            canvasHeight = canvas.clientHeight;
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+        }
+
+        function drawOscilloscope() {
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            const middleY = canvasHeight / 2;
+            
+            cursorPositionX += CURSOR_SCROLL_SPEED; 
+            if (cursorPositionX > canvasWidth) {
+                cursorPositionX = 0; 
+            }
+
+            // Draw the base flat line (Monitoring State)
+            ctx.strokeStyle = '#00FFFF'; 
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#00FFFF';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.moveTo(0, middleY);
+            ctx.lineTo(canvasWidth, middleY);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            // Draw all Anomaly Spikes
+            const maxSpikeHeight = canvasHeight * 0.45;
+            const spikeWidth = canvasWidth * 0.05; 
+
+            for (let i = 0; i < anomalies.length; i++) {
+                let anomaly = anomalies[i];
+
+                // Decay quickly until it hits the persistence level
+                if (anomaly.currentIntensity > PERSISTENCE_INTENSITY) {
+                    anomaly.currentIntensity -= SPIKE_DECAY_RATE;
+                }
+                
+                // Clamp the intensity at the persistence level to prevent disappearance
+                anomaly.currentIntensity = Math.max(PERSISTENCE_INTENSITY, anomaly.currentIntensity);
+
+
+                ctx.strokeStyle = `rgba(255, 255, 0, ${anomaly.currentIntensity * 0.8})`; 
+                ctx.lineWidth = 3;
+                ctx.shadowColor = '#FFFF00'; 
+                ctx.shadowBlur = 15 * anomaly.currentIntensity;
+                
+                const spikeX = anomaly.x;
+                const spikeHeight = maxSpikeHeight * anomaly.initialIntensity;
+
+                ctx.beginPath();
+                ctx.moveTo(spikeX - spikeWidth / 2, middleY); 
+                ctx.lineTo(spikeX, middleY - spikeHeight);
+                ctx.lineTo(spikeX + spikeWidth / 2, middleY + spikeHeight * 0.5); 
+                ctx.lineTo(spikeX + spikeWidth, middleY);
+                
+                ctx.stroke();
+            }
+            ctx.shadowBlur = 0;
+            
+            // Draw the Cursor (Vertical line marker) 
+            ctx.fillStyle = '#00FFFF';
+            ctx.shadowColor = '#00FFFF';
+            ctx.shadowBlur = 15;
+            
+            ctx.fillRect(cursorPositionX, 0, CURSOR_WIDTH, canvasHeight); 
+            
+            ctx.shadowBlur = 0;
+
+            requestAnimationFrame(drawOscilloscope);
+        }
+        
+        // --- State Management Functions ---
+        
+        function resetDetectionState() {
+            clearTimeout(detectionTimer);
+            app.classList.remove('detected-bg');
+            detectorDisplay.classList.remove('border-red-500');
+            statusMessage.textContent = "MONITORING...";
+            statusMessage.classList.remove('text-red-700', 'neon-glow', 'text-yellow-700');
+            statusMessage.classList.add('text-cyan-700');
+        }
+
+        async function triggerDetection(detectedIntensity = 1.0) {
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+            }
+
+            anomalies.push({
+                x: cursorPositionX,
+                currentIntensity: 1.0,
+                initialIntensity: detectedIntensity
+            });
+
+            triggerScarySound(); 
+            clearTimeout(detectionTimer);
+
+            app.classList.add('detected-bg');
+            detectorDisplay.classList.add('border-red-500');
+            
+            statusMessage.textContent = "ANOMALY DETECTED!";
+            statusMessage.classList.remove('text-cyan-700', 'text-yellow-700');
+            statusMessage.classList.add('text-red-700', 'neon-glow');
+            
+            detectionTimer = setTimeout(resetDetectionState, DECAY_MS);
+        }
+        
+        // --- EVP Monitoring Functions (FIXED DIAL LOGIC & GLOBAL EXPORT) ---
+        
+        function stopEVPMonitoring() {
+            if (!isListening) return;
+
+            if (mediaStream) { mediaStream.getTracks().forEach(track => track.stop()); }
+            if (audioContext) { audioContext.close().catch(e => console.error("Error closing AudioContext:", e)); }
+            
+            audioContext = null; analyser = null; isListening = false; mediaStream = null;
+
+            evpDial.classList.remove('dial-on');
+            evpStatus.textContent = 'OFFLINE';
+        }
+
+        function monitorSoundLevel() {
+            if (!isListening || !analyser) return;
+
+            analyser.getByteTimeDomainData(dataArray);
+
+            let peak = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                const absoluteValue = Math.abs(dataArray[i] - 128); 
+                if (absoluteValue > peak) {
+                    peak = absoluteValue;
+                }
+            }
+            
+            if (peak > currentSoundThreshold) {
+                const triggerableRange = 127 - currentSoundThreshold;
+                let calculatedIntensity = (peak - currentSoundThreshold) / triggerableRange;
+                calculatedIntensity = Math.min(1.0, Math.max(MIN_TRIGGER_INTENSITY, calculatedIntensity));
+                triggerDetection(calculatedIntensity); 
+            }
+
+            requestAnimationFrame(monitorSoundLevel);
+        }
+
+        // Export to global scope for inline HTML onclick to work
+        window.toggleEVPMonitoring = async function() {
+            console.log("EVP Monitoring: Toggle attempt.");
+            if (isListening) {
+                stopEVPMonitoring();
+                return;
+            }
+            
+            try {
+                // Must start audio context first for mobile compatibility
+                if (Tone.context.state !== 'running') {
+                    await Tone.start();
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaStream = stream;
+                // Re-initialize AudioContext if it was closed
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                const microphone = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                analyser.smoothingTimeConstant = 0.5;
+                
+                microphone.connect(analyser);
+                
+                const bufferLength = analyser.frequencyBinCount;
+                dataArray = new Uint8Array(bufferLength);
+
+                isListening = true;
+                evpDial.classList.add('dial-on');
+                evpStatus.textContent = 'ACTIVE';
+                console.log("EVP Monitoring: ACTIVATED.");
+                monitorSoundLevel();
+
+            } catch (error) {
+                console.error('Error accessing microphone (Permission Denied):', error);
+                
+                evpDial.classList.remove('dial-on');
+                evpStatus.textContent = 'ACCESS DENIED'; 
+                
+                // Flash the text red to signal the denial
+                evpStatus.style.color = '#ff0000'; 
+                setTimeout(() => {
+                    evpStatus.style.color = '#ff3333'; // Revert to OFF color
+                }, 1500);
+            }
+        }
+        
+        // --- Makey Makey Functions (FIXED DIAL LOGIC & GLOBAL EXPORT) ---
+
+        let isKeyDown = false; 
+        function handleMakeyKeyDown(event) {
+            if (event.key === TRIGGER_KEY && !isKeyDown && isMakeyMakeyActive) {
+                isKeyDown = true;
+                makeyKeyDownTime = Date.now(); 
+            }
+        }
+        
+        function handleMakeyKeyUp(event) {
+            if (event.key === TRIGGER_KEY && isMakeyMakeyActive && isKeyDown) {
+                
+                const duration = Date.now() - makeyKeyDownTime;
+                
+                let calculatedIntensity = duration / currentMaxKeyHoldMs;
+                calculatedIntensity = Math.min(1.0, Math.max(MIN_TRIGGER_INTENSITY, calculatedIntensity));
+                
+                triggerDetection(calculatedIntensity);
+                
+                isKeyDown = false; 
+            }
+        }
+
+        // Export to global scope for inline HTML onclick to work
+        window.toggleMakeyMakeyMonitoring = function() {
+            if (isMakeyMakeyActive) {
+                console.log("Phantom Grab Sensor: Deactivating.");
+                document.removeEventListener('keydown', handleMakeyKeyDown);
+                document.removeEventListener('keyup', handleMakeyKeyUp);
+                isMakeyMakeyActive = false;
+
+                phantomDial.classList.remove('dial-on');
+                phantomStatus.textContent = 'OFFLINE';
+            } else {
+                console.log("Phantom Grab Sensor: Activating.");
+                document.addEventListener('keydown', handleMakeyKeyDown);
+                document.addEventListener('keyup', handleMakeyKeyUp);
+                isMakeyMakeyActive = true;
+
+                phantomDial.classList.add('dial-on');
+                phantomStatus.textContent = 'ARMED';
+            }
+        }
+        
+        function resetSpikes() {
+            // Clears all anomalies, including persistent ones.
+            anomalies = [];
+            
+            statusMessage.textContent = "ANOMALY LOG CLEARED";
+            statusMessage.classList.remove('text-red-700', 'text-cyan-700', 'neon-glow');
+            statusMessage.classList.add('text-yellow-700'); 
+
+            setTimeout(() => {
+                if (!detectionTimer) { 
+                    resetDetectionState();
+                }
+            }, 1500);
+        }
+
+
+        // --- Event Listeners and Initialization ---
+        
+        resetSpikesBtn.addEventListener('click', resetSpikes);
+        
+        window.onload = () => {
+             setupSensitivityDials(); 
+             resizeCanvas(); 
+             resetDetectionState();
+             drawOscilloscope(); 
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+
+    </script>
+</body>
+</html>
